@@ -7,7 +7,7 @@ ON DUPLICATE KEY UPDATE name = VALUES(name);
 
 -- 添加默认管理员账号
 INSERT INTO users (username, password, role) 
-VALUES ('admin', 'admin123', 'ADMIN')
+VALUES ('admin11', 'admin123', 'ADMIN')
 ON DUPLICATE KEY UPDATE username = VALUES(username);
 
 -- 添加测试用户
