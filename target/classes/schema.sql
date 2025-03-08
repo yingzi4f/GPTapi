@@ -1,5 +1,7 @@
+DROP TABLE IF EXISTS personal_messages;
+DROP TABLE IF EXISTS personal_sessions;
 DROP TABLE IF EXISTS chat_messages;
-DROP TABLE IF EXISTS users_teams;  -- 删除关联表（如果存在）
+DROP TABLE IF EXISTS users_teams;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS teams;
 DROP TABLE IF EXISTS models;
@@ -24,15 +26,48 @@ CREATE TABLE IF NOT EXISTS teams (
     leader_id BIGINT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- 聊天消息表
+-- 团队聊天消息表
 CREATE TABLE IF NOT EXISTS chat_messages (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     session_id VARCHAR(255) NOT NULL,
+    user_id BIGINT NOT NULL,
     role VARCHAR(50) NOT NULL,
     content TEXT,
     username VARCHAR(255),
     model_name VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_session_user (session_id, user_id),
+    INDEX idx_user_id (user_id),
+    CONSTRAINT fk_chat_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 个人会话表
+CREATE TABLE IF NOT EXISTS personal_sessions (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    session_id VARCHAR(255) NOT NULL UNIQUE,
+    user_id BIGINT NOT NULL,
+    name VARCHAR(255),
+    last_message TEXT,
+    model_name VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user_id (user_id),
+    CONSTRAINT fk_personal_session_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 个人聊天消息表
+CREATE TABLE IF NOT EXISTS personal_messages (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    session_id VARCHAR(255) NOT NULL,
+    user_id BIGINT NOT NULL,
+    role VARCHAR(50) NOT NULL,
+    content TEXT,
+    model_name VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_session_user (session_id, user_id),
+    INDEX idx_user_id (user_id),
+    CONSTRAINT fk_personal_message_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_personal_message_session FOREIGN KEY (session_id) REFERENCES personal_sessions(session_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 模型表

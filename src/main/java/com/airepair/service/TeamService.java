@@ -5,33 +5,31 @@ import com.airepair.entity.Team;
 import com.airepair.entity.User;
 import com.airepair.repository.TeamRepository;
 import com.airepair.repository.UserRepository;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class TeamService {
-
+    
+    @Autowired
+    private TeamRepository teamRepository;
+    
     @Autowired
     private UserRepository userRepository;
 
-    @Autowired
-    private TeamRepository teamRepository;
-
-    @Transactional(readOnly = true)
     public List<Team> getAllTeams() {
         return teamRepository.findAll();
     }
 
     @Transactional
     public Team createTeam(String teamName) {
-        if (teamRepository.findByName(teamName).isPresent()) {
-            throw new RuntimeException("\u56e2\u961f\u540d\u5df2\u5b58\u5728");
-        }
-
         Team team = new Team();
         team.setName(teamName);
         team.setSessionId(UUID.randomUUID().toString());
@@ -39,37 +37,72 @@ public class TeamService {
     }
 
     @Transactional
-    public void assignUserToTeam(String username, String teamName) {
+    public Team createTeam(String username, String teamName) {
         User user = userRepository.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("\u7528\u6237\u4e0d\u5b58\u5728: " + username));
+            .orElseThrow(() -> new RuntimeException("用户不存在"));
+        
+        Team team = createTeam(teamName);
+        team.setLeaderId(user.getId());
+        return teamRepository.save(team);
+    }
 
+    @Transactional
+    public void addUserToTeam(String username, String teamName) {
+        User user = userRepository.findByUsername(username)
+            .orElseThrow(() -> new RuntimeException("用户不存在"));
+        
         Team team = teamRepository.findByName(teamName)
-                .orElseThrow(() -> new RuntimeException("\u56e2\u961f\u4e0d\u5b58\u5728: " + teamName));
-
+            .orElseThrow(() -> new RuntimeException("团队不存在"));
+        
         user.setTeamId(team.getId());
         userRepository.save(user);
     }
 
-    @Transactional(readOnly = true)
-    public List<UserDTO> getTeamMembers(Long teamId) {
-        // \u9a8c\u8bc1\u56e2\u961f\u662f\u5426\u5b58\u5728
-        Team team = teamRepository.findById(teamId)
-            .orElseThrow(() -> new RuntimeException("\u56e2\u961f\u4e0d\u5b58\u5728: " + teamId));
-
-        // \u83b7\u53d6\u8be5\u56e2\u961f\u7684\u6240\u6709\u6210\u5458
-        List<User> teamMembers = userRepository.findByTeamId(teamId);
+    public UserDTO getUserTeam(String username) {
+        User user = userRepository.findByUsername(username)
+            .orElseThrow(() -> new RuntimeException("用户不存在"));
         
-        // \u8f6c\u6362\u4e3aDTO
-        return teamMembers.stream()
+        UserDTO dto = new UserDTO();
+        dto.setId(user.getId());
+        dto.setUsername(user.getUsername());
+        dto.setRole(user.getRole());
+        
+        if (user.getTeamId() != null) {
+            Team team = teamRepository.findById(user.getTeamId())
+                .orElseThrow(() -> new RuntimeException("团队不存在"));
+            
+            boolean isTeamLeader = team.getLeaderId() != null && team.getLeaderId().equals(user.getId());
+            dto.setIsTeamLeader(isTeamLeader);
+            
+            UserDTO.TeamDTO teamDTO = new UserDTO.TeamDTO();
+            teamDTO.setId(team.getId());
+            teamDTO.setName(team.getName());
+            teamDTO.setSessionId(team.getSessionId());
+            dto.setTeam(teamDTO);
+        }
+        
+        return dto;
+    }
+
+    public User getUserByUsername(String username) {
+        return userRepository.findByUsername(username)
+            .orElseThrow(() -> new RuntimeException("用户不存在"));
+    }
+
+    public List<UserDTO> getTeamMembers(Long teamId) {
+        Team team = teamRepository.findById(teamId)
+            .orElseThrow(() -> new RuntimeException("团队不存在"));
+        
+        List<User> members = userRepository.findByTeamId(teamId);
+        
+        return members.stream()
             .map(user -> {
                 UserDTO dto = new UserDTO();
                 dto.setId(user.getId());
                 dto.setUsername(user.getUsername());
                 dto.setRole(user.getRole());
                 
-                // \u68c0\u67e5\u7528\u6237\u662f\u5426\u662f\u56e2\u961f\u7ec4\u957f
-                boolean isTeamLeader = team.getLeaderId() != null && 
-                    team.getLeaderId().equals(user.getId());
+                boolean isTeamLeader = team.getLeaderId() != null && team.getLeaderId().equals(user.getId());
                 dto.setIsTeamLeader(isTeamLeader);
                 
                 UserDTO.TeamDTO teamDTO = new UserDTO.TeamDTO();

@@ -24,13 +24,14 @@ public class ModelController {
     private OllamaService ollamaService;
 
     @GetMapping("/local")
-    public ResponseEntity<List<String>> getLocalModels() {
+    public ResponseEntity<?> getLocalModels() {
         try {
+            log.info("Getting local models");
             List<String> models = ollamaService.getLocalModels();
             return ResponseEntity.ok(models);
         } catch (Exception e) {
-            log.error("Failed to get local models", e);
-            return ResponseEntity.internalServerError().build();
+            log.error("Error getting local models", e);
+            return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
 

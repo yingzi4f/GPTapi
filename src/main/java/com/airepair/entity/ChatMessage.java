@@ -10,7 +10,11 @@ import java.time.LocalDateTime;
 @Data
 @NoArgsConstructor
 @Entity
-@Table(name = "chat_messages")
+@Table(name = "chat_messages", indexes = {
+    @Index(name = "idx_session_id", columnList = "session_id"),
+    @Index(name = "idx_user_id", columnList = "user_id"),
+    @Index(name = "idx_created_at", columnList = "created_at")
+})
 public class ChatMessage {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -18,6 +22,9 @@ public class ChatMessage {
 
     @Column(name = "session_id", nullable = false)
     private String sessionId;
+
+    @Column(name = "user_id")
+    private Long userId;
 
     @Column(name = "role", nullable = false)
     private String role;
