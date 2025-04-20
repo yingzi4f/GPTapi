@@ -50,14 +50,30 @@ public class ModelController {
     public ResponseEntity<?> addModel(@RequestBody Map<String, String> request) {
         try {
             String modelName = request.get("name");
+            String apiKey = request.getOrDefault("apiKey", null);
             if (modelName == null || modelName.trim().isEmpty()) {
                 return ResponseEntity.badRequest().body("Model name cannot be empty");
             }
-            
-            Model model = modelService.addModel(modelName);
+            Model model = modelService.addModel(modelName, apiKey);
             return ResponseEntity.ok(model);
         } catch (Exception e) {
             log.error("Failed to add model", e);
+            return ResponseEntity.internalServerError().body(e.getMessage());
+        }
+    }
+
+    @PutMapping("/key")
+    public ResponseEntity<?> updateModelApiKey(@RequestBody Map<String, String> request) {
+        try {
+            String modelName = request.get("name");
+            String apiKey = request.get("apiKey");
+            if (modelName == null || modelName.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body("Model name cannot be empty");
+            }
+            Model model = modelService.updateModelApiKey(modelName, apiKey);
+            return ResponseEntity.ok(model);
+        } catch (Exception e) {
+            log.error("Failed to update model apiKey", e);
             return ResponseEntity.internalServerError().body(e.getMessage());
         }
     }

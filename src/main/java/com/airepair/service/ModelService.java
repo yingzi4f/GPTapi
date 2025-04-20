@@ -20,13 +20,14 @@ public class ModelService {
     }
 
     @Transactional
-    public Model addModel(String name) {
+    public Model addModel(String name, String apiKey) {
         if (modelRepository.existsByName(name)) {
             throw new RuntimeException("Model already exists: " + name);
         }
 
         Model model = new Model();
         model.setName(name);
+        model.setApiKey(apiKey);
         return modelRepository.save(model);
     }
 
@@ -43,5 +44,13 @@ public class ModelService {
             throw new RuntimeException("Model not found with id: " + id);
         }
         modelRepository.deleteById(id);
+    }
+
+    @Transactional
+    public Model updateModelApiKey(String name, String apiKey) {
+        Model model = modelRepository.findByName(name)
+            .orElseThrow(() -> new RuntimeException("Model not found: " + name));
+        model.setApiKey(apiKey);
+        return modelRepository.save(model);
     }
 }

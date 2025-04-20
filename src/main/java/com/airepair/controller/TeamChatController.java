@@ -9,6 +9,7 @@ import com.airepair.repository.ChatMessageRepository;
 import com.airepair.repository.TeamRepository;
 import com.airepair.repository.UserRepository;
 import com.airepair.service.OllamaService;
+import com.airepair.service.QwenService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -29,6 +30,9 @@ public class TeamChatController {
 
     @Autowired
     private OllamaService ollamaService;
+
+    @Autowired
+    private QwenService qwenService;
 
     @Autowired
     private ChatMessageRepository chatMessageRepository;
@@ -89,25 +93,19 @@ public class TeamChatController {
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter streamChat(@RequestBody ChatRequest request) {
         log.info("Received chat stream request for session: {}", request.getSessionId());
-        
         SseEmitter emitter = new SseEmitter(-1L); // 设置无限超时
-        
         try {
             // 1. 验证用户和会话
             User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new RuntimeException("用户不存在"));
-
             if (user.getTeamId() == null) {
                 throw new RuntimeException("用户不属于任何团队");
             }
-
             Team team = teamRepository.findById(user.getTeamId())
                 .orElseThrow(() -> new RuntimeException("团队不存在"));
-
             if (!team.getSessionId().equals(request.getSessionId())) {
                 throw new RuntimeException("无效的会话ID");
             }
-
             // 2. 保存用户消息
             ChatMessage userMessage = new ChatMessage();
             userMessage.setSessionId(request.getSessionId());
@@ -117,27 +115,21 @@ public class TeamChatController {
             userMessage.setUsername(request.getUsername());
             userMessage.setModelName(request.getModelName());
             chatMessageRepository.save(userMessage);
-
             // 3. 获取历史消息
             List<ChatMessage> history = chatMessageRepository.findBySessionIdOrderByCreatedAt(request.getSessionId());
-            List<OllamaChatRequest.Message> messages = new ArrayList<>();
-            
-            // 添加系统提示
-            messages.add(new OllamaChatRequest.Message("system", 
-                "你是一个专业的AI助手，请提供准确和有帮助的回答。请使用中文回复。"));
-            
-            // 添加历史消息
-            for (ChatMessage msg : history) {
-                messages.add(new OllamaChatRequest.Message(msg.getRole(), msg.getContent()));
-            }
-
-            // 4. 调用Ollama服务
-            ollamaService.streamChat(
-                request.getModelName(),
-                messages,
-                new OllamaService.StreamCallback() {
+            // 路由到不同模型服务
+            String modelNameLower = request.getModelName() != null ? request.getModelName().toLowerCase() : "";
+            if (modelNameLower.contains("qwen") || modelNameLower.contains("qwq")) {
+                // Qwen格式messages
+                List<Object> qwenMessages = new ArrayList<>();
+                // 系统提示
+                qwenMessages.add(java.util.Map.of("role", "system", "content", "你是一个专业的AI助手，请提供准确和有帮助的回答。请使用中文回复。"));
+                for (ChatMessage msg : history) {
+                    qwenMessages.add(java.util.Map.of("role", msg.getRole(), "content", msg.getContent()));
+                }
+                qwenMessages.add(java.util.Map.of("role", "user", "content", request.getContent()));
+                qwenService.streamChat(request.getModelName(), qwenMessages, new QwenService.StreamCallback() {
                     private final StringBuilder responseBuilder = new StringBuilder();
-
                     @Override
                     public void onMessage(String message) {
                         try {
@@ -148,7 +140,6 @@ public class TeamChatController {
                             emitter.completeWithError(e);
                         }
                     }
-
                     @Override
                     public void onComplete() {
                         try {
@@ -161,26 +152,71 @@ public class TeamChatController {
                             aiMessage.setUsername("AI");
                             aiMessage.setModelName(request.getModelName());
                             chatMessageRepository.save(aiMessage);
-                            
                             emitter.complete();
                         } catch (Exception e) {
                             log.error("Error completing stream", e);
                             emitter.completeWithError(e);
                         }
                     }
-
                     @Override
                     public void onError(Throwable t) {
                         log.error("Error in stream", t);
                         emitter.completeWithError(t);
                     }
+                });
+            } else {
+                // Ollama格式
+                List<OllamaChatRequest.Message> messages = new ArrayList<>();
+                // 添加系统提示
+                messages.add(new OllamaChatRequest.Message("system", "你是一个专业的AI助手，请提供准确和有帮助的回答。请使用中文回复。"));
+                for (ChatMessage msg : history) {
+                    messages.add(new OllamaChatRequest.Message(msg.getRole(), msg.getContent()));
                 }
-            );
+                ollamaService.streamChat(
+                    request.getModelName(),
+                    messages,
+                    new OllamaService.StreamCallback() {
+                        private final StringBuilder responseBuilder = new StringBuilder();
+                        @Override
+                        public void onMessage(String message) {
+                            try {
+                                responseBuilder.append(message);
+                                emitter.send(message);
+                            } catch (IOException e) {
+                                log.error("Error sending message", e);
+                                emitter.completeWithError(e);
+                            }
+                        }
+                        @Override
+                        public void onComplete() {
+                            try {
+                                // 保存AI回复
+                                ChatMessage aiMessage = new ChatMessage();
+                                aiMessage.setSessionId(request.getSessionId());
+                                aiMessage.setUserId(user.getId());
+                                aiMessage.setRole("assistant");
+                                aiMessage.setContent(responseBuilder.toString());
+                                aiMessage.setUsername("AI");
+                                aiMessage.setModelName(request.getModelName());
+                                chatMessageRepository.save(aiMessage);
+                                emitter.complete();
+                            } catch (Exception e) {
+                                log.error("Error completing stream", e);
+                                emitter.completeWithError(e);
+                            }
+                        }
+                        @Override
+                        public void onError(Throwable t) {
+                            log.error("Error in stream", t);
+                            emitter.completeWithError(t);
+                        }
+                    }
+                );
+            }
         } catch (Exception e) {
             log.error("Error setting up chat stream", e);
             emitter.completeWithError(e);
         }
-
         return emitter;
     }
 }

@@ -9,6 +9,7 @@ import com.airepair.repository.PersonalMessageRepository;
 import com.airepair.repository.PersonalSessionRepository;
 import com.airepair.repository.UserRepository;
 import com.airepair.service.OllamaService;
+import com.airepair.service.QwenService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -36,6 +37,9 @@ public class PersonalChatController {
     
     @Autowired
     private OllamaService ollamaService;
+
+    @Autowired
+    private QwenService qwenService;
 
     @PostMapping("/sessions")
     public ResponseEntity<?> createSession(@RequestParam String username) {
@@ -146,55 +150,95 @@ public class PersonalChatController {
 
             StringBuilder responseBuilder = new StringBuilder();
 
-            // 调用Ollama服务
-            List<OllamaChatRequest.Message> messages = new ArrayList<>();
-            for (PersonalMessage msg : history) {
-                messages.add(new OllamaChatRequest.Message(msg.getRole(), msg.getContent()));
+            // 路由到不同模型服务
+            String modelNameLower = request.getModelName() != null ? request.getModelName().toLowerCase() : "";
+            if (modelNameLower.contains("qwen") || modelNameLower.contains("qwq")) {
+                // Qwen格式messages
+                List<Object> qwenMessages = new ArrayList<>();
+                for (PersonalMessage msg : history) {
+                    qwenMessages.add(Map.of("role", msg.getRole(), "content", msg.getContent()));
+                }
+                qwenMessages.add(Map.of("role", "user", "content", request.getContent()));
+                qwenService.streamChat(request.getModelName(), qwenMessages, new QwenService.StreamCallback() {
+                    @Override
+                    public void onMessage(String message) {
+                        try {
+                            responseBuilder.append(message);
+                            emitter.send(message);
+                        } catch (IOException e) {
+                            log.error("Error sending SSE", e);
+                            emitter.completeWithError(e);
+                        }
+                    }
+                    @Override
+                    public void onComplete() {
+                        try {
+                            savedAiMessage.setContent(responseBuilder.toString());
+                            personalMessageRepository.save(savedAiMessage);
+                            session.setLastMessage(responseBuilder.toString());
+                            session.setUpdatedAt(LocalDateTime.now());
+                            personalSessionRepository.save(session);
+                            emitter.send(SseEmitter.event()
+                                .data(responseBuilder.toString())
+                                .id(request.getSessionId())
+                                .name("complete")
+                                .build());
+                            emitter.complete();
+                        } catch (IOException e) {
+                            log.error("Error completing SSE", e);
+                            emitter.completeWithError(e);
+                        }
+                    }
+                    @Override
+                    public void onError(Throwable t) {
+                        log.error("Error in stream chat", t);
+                        emitter.completeWithError(t);
+                    }
+                });
+            } else {
+                // Ollama格式
+                List<OllamaChatRequest.Message> messages = new ArrayList<>();
+                for (PersonalMessage msg : history) {
+                    messages.add(new OllamaChatRequest.Message(msg.getRole(), msg.getContent()));
+                }
+                messages.add(new OllamaChatRequest.Message("user", request.getContent()));
+                ollamaService.streamChat(request.getModelName(), messages, new OllamaService.StreamCallback() {
+                    @Override
+                    public void onMessage(String message) {
+                        try {
+                            responseBuilder.append(message);
+                            emitter.send(message);
+                        } catch (IOException e) {
+                            log.error("Error sending SSE", e);
+                            emitter.completeWithError(e);
+                        }
+                    }
+                    @Override
+                    public void onComplete() {
+                        try {
+                            savedAiMessage.setContent(responseBuilder.toString());
+                            personalMessageRepository.save(savedAiMessage);
+                            session.setLastMessage(responseBuilder.toString());
+                            session.setUpdatedAt(LocalDateTime.now());
+                            personalSessionRepository.save(session);
+                            emitter.send(SseEmitter.event()
+                                .data(responseBuilder.toString())
+                                .id(request.getSessionId())
+                                .name("complete")
+                                .build());
+                            emitter.complete();
+                        } catch (IOException e) {
+                            log.error("Error completing SSE", e);
+                            emitter.completeWithError(e);
+                        }
+                    }
+                    @Override
+                    public void onError(Throwable t) {
+                        log.error("Error in stream chat", t);
+                        emitter.completeWithError(t);
+                    }
+                });
             }
-            messages.add(new OllamaChatRequest.Message("user", request.getContent()));
-            
-            ollamaService.streamChat(request.getModelName(), messages, new OllamaService.StreamCallback() {
-                @Override
-                public void onMessage(String message) {
-                    try {
-                        responseBuilder.append(message);
-                        emitter.send(message);
-                    } catch (IOException e) {
-                        log.error("Error sending SSE", e);
-                        emitter.completeWithError(e);
-                    }
-                }
-
-                @Override
-                public void onComplete() {
-                    try {
-                        // 更新AI消息内容
-                        savedAiMessage.setContent(responseBuilder.toString());
-                        personalMessageRepository.save(savedAiMessage);
-                        
-                        // 更新会话最后消息
-                        session.setLastMessage(responseBuilder.toString());
-                        session.setUpdatedAt(LocalDateTime.now());
-                        personalSessionRepository.save(session);
-                        
-                        emitter.send(SseEmitter.event()
-                            .data(responseBuilder.toString())
-                            .id(request.getSessionId())
-                            .name("complete")
-                            .build());
-                        emitter.complete();
-                    } catch (IOException e) {
-                        log.error("Error completing SSE", e);
-                        emitter.completeWithError(e);
-                    }
-                }
-
-                @Override
-                public void onError(Throwable t) {
-                    log.error("Error in stream chat", t);
-                    emitter.completeWithError(t);
-                }
-            });
         } catch (Exception e) {
             log.error("Error in chat stream", e);
             emitter.completeWithError(e);

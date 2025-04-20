@@ -18,6 +18,9 @@ public class Model {
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "api_key")
+    private String apiKey;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
